@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SQL Learning and Query Platform running an in-browser SQLite WebAssembly engine.">
+  <title>SQL Visualizer</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Load SQLite WebAssembly via sql.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+</head>
+<body>
+
+  <!-- Top App Navigation -->
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-badge">SQL</div>
+      <div>
+        <span class="logo-title">SQL Visualizer</span>
+      </div>
+    </div>
+
+    <div class="header-status">
+      <div class="status-badge" id="engineStatusBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Initializing SQLite WASM...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Application Body: Two-Column Split Layout -->
+  <main class="app-container app-layout-split">
+
+    <!-- LEFT COLUMN: Visualizing Space (Source Tables + Query Results) -->
+    <div class="visualizer-column">
+
+      <!-- Database Selector Bar -->
+      <div class="dashboard-card database-control-card">
+        <div class="card-header">
+          <div class="card-header-left">
+            <span class="card-label">Active Database:</span>
+            <select id="datasetSelect" class="dataset-select" title="Choose database">
+              <option value="company">Company (Employees &amp; Departments)</option>
+              <option value="university">University (Students &amp; Courses)</option>
+            </select>
+          </div>
+          <button id="resetDbBtn" class="btn btn-secondary btn-sm" title="Reset tables and data back to initial state">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+            Reset Data
+          </button>
+        </div>
+        <p class="dataset-description" id="datasetInfoBox">Loading description...</p>
+      </div>
+
+      <!-- Source Tables Card (Side by Side Live Data Tables) -->
+      <div class="dashboard-card source-tables-card">
+        <div class="card-header">
+          <div class="section-title-group">
+            <span class="card-label">Source Tables</span>
+            <span class="card-hint">Live relational tables &amp; schema</span>
+          </div>
+        </div>
+
+        <div class="tables-side-by-side-grid" id="databaseTablesContainer">
+          <!-- Live source tables rendered side by side dynamically -->
+        </div>
+      </div>
+
+      <!-- Visual Query Execution & Operation Visualizer Card -->
+      <section class="dashboard-card visualizer-card" id="visualizerCard">
+        <div class="card-header visualizer-card-header">
+          <div class="visualizer-header-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
+            </svg>
+            <span class="card-label">Execution Pipeline Visualizer</span>
+            <span class="badge-stage" id="currentStageBadge">FROM / JOIN</span>
+          </div>
+
+          <!-- Stepper Controls -->
+          <div class="stepper-controls">
+            <button id="stepResetBtn" class="btn btn-secondary btn-xs" title="Reset to first step">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+            </button>
+            <button id="stepPrevBtn" class="btn btn-secondary btn-xs" title="Previous step">
+              ◀ Prev
+            </button>
+            <button id="stepPlayBtn" class="btn btn-primary btn-xs" title="Play or pause auto-stepper">
+              ▶ Play
+            </button>
+            <button id="stepNextBtn" class="btn btn-secondary btn-xs" title="Next step">
+              Next ▶
+            </button>
+          </div>
+        </div>
+
+        <!-- Pipeline Timeline Track -->
+        <div class="pipeline-track" id="pipelineTimeline">
+          <!-- Stage nodes dynamically populated: [1. FROM/JOIN] -> [2. WHERE] -> [3. GROUP BY] -> [4. SELECT] -->
+        </div>
+
+        <!-- Stage Explanation Banner -->
+        <div class="stage-explainer" id="stageExplainer">
+          <span class="stage-step-tag" id="stageStepTag">STAGE 1</span>
+          <div class="stage-explainer-text">
+            <strong id="stageStepTitle">Execution Pipeline Ready</strong>
+            <p id="stageStepDesc">Run any query to step through clauses.</p>
+          </div>
+        </div>
+
+        <!-- Dynamic Visual Arena -->
+        <div class="visual-arena" id="visualArena">
+          <!-- Live interactive visualization for JOIN, WHERE, GROUP BY, SELECT renders here -->
+        </div>
+      </section>
+
+      <!-- Query Results Card (Positioned directly below the visualizer) -->
+      <section class="results-card">
+        <div class="results-card-header">
+          <div class="results-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            <span>Query Results</span>
+          </div>
+          <div class="results-metrics" id="resultsMetrics">
+            <span class="metric-pill" id="rowCountMetric">0 rows</span>
+            <span class="metric-pill" id="executionTimeMetric">0 ms</span>
+          </div>
+        </div>
+
+        <div class="results-content" id="resultsContent">
+          <div class="state-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="4" width="20" height="16" rx="2"/>
+              <path d="M10 4v16"/>
+              <path d="M2 10h20"/>
+            </svg>
+            <p>Run a query or click any trial query on the right to see live results.</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Confined Coding & Trial Queries Space -->
+    <div class="coding-column">
+
+      <!-- Trial Queries Card -->
+      <div class="dashboard-card trial-queries-card">
+        <div class="card-header">
+          <div>
+            <span class="card-label">Trial Queries for You</span>
+            <span class="card-hint">Click any query to load and run</span>
+          </div>
+        </div>
+        <div class="trial-chips-container" id="presetChipsContainer">
+          <!-- Trial query buttons injected dynamically -->
+        </div>
+      </div>
+
+      <!-- SQL Query Editor Card -->
+      <section class="editor-card">
+        <div class="editor-card-header">
+          <div class="editor-query-info">
+            <span class="editor-query-title" id="activeQueryTitle">SQL Query Console</span>
+            <span class="editor-query-desc" id="activeQueryDesc">Type or select any SQL statement to execute.</span>
+          </div>
+        </div>
+
+        <div class="editor-textarea-wrapper">
+          <textarea id="sqlInput" spellcheck="false" placeholder="Write your SQL query here (e.g. SELECT * FROM employees;)..."></textarea>
+        </div>
+
+        <div class="editor-actions-bar">
+          <span class="shortcut-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to run</span>
+          <div class="editor-buttons-group">
+            <button id="clearBtn" class="btn btn-secondary" title="Clear SQL editor">Clear</button>
+            <button id="runQueryBtn" class="btn btn-primary" title="Execute current SQL query">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+              </svg>
+              Run Query
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- Table Preview Modal -->
+  <div class="modal-overlay" id="previewModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>Table Data:</span>
+          <code id="previewModalTableName" class="table-name-code"></code>
+        </div>
+        <button class="modal-close-btn" id="closeModalBtn" title="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBodyContent">
+        <!-- Live table content rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="samples.js"></script>
+  <script src="db.js"></script>
+  <script src="visualizer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
