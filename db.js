@@ -3,7 +3,7 @@
 const DB = {
   sqlInstance: null,
   database: null,
-  currentDatasetKey: 'company',
+  currentDatasetKey: 'retail',
 
   /**
    * Initializes the sql.js WebAssembly engine

@@ -1,466 +1,528 @@
-// app.js - Application UI Coordinator & Controller
+// app.js - Queryscope Application Coordinator & Interactive Controller
 
 document.addEventListener('DOMContentLoaded', async () => {
   // DOM Elements
-  const statusDot = document.getElementById('statusDot');
-  const statusText = document.getElementById('statusText');
-  const datasetSelect = document.getElementById('datasetSelect');
-  const resetDbBtn = document.getElementById('resetDbBtn');
-  const datasetInfoBox = document.getElementById('datasetInfoBox');
-  const databaseTablesContainer = document.getElementById('databaseTablesContainer');
-  const presetChipsContainer = document.getElementById('presetChipsContainer');
+  const sessionStatusText = document.getElementById('sessionStatusText');
+  const sessionDot = document.getElementById('sessionDot');
+  const datasetDropdownBtn = document.getElementById('datasetDropdownBtn');
+  const datasetDropdownMenu = document.getElementById('datasetDropdownMenu');
+  const activeSampleLabel = document.getElementById('activeSampleLabel');
+  const queryTitleHeading = document.getElementById('queryTitleHeading');
+  const queryCategoryTag = document.getElementById('queryCategoryTag');
+  const querySubtitleText = document.getElementById('querySubtitleText');
+  const sourceDataStats = document.getElementById('sourceDataStats');
+  const sourceTablesContainer = document.getElementById('sourceTablesContainer');
+  const resetDataBtn = document.getElementById('resetDataBtn');
+  const outputMetricsPill = document.getElementById('outputMetricsPill');
+  const queryOutputScroll = document.getElementById('queryOutputScroll');
+  const outputPreviewNote = document.getElementById('outputPreviewNote');
+  const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+  const editorFileName = document.getElementById('editorFileName');
+  const editorGutter = document.getElementById('editorGutter');
   const sqlInput = document.getElementById('sqlInput');
-  const runQueryBtn = document.getElementById('runQueryBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const activeQueryTitle = document.getElementById('activeQueryTitle');
-  const activeQueryDesc = document.getElementById('activeQueryDesc');
-  const rowCountMetric = document.getElementById('rowCountMetric');
-  const executionTimeMetric = document.getElementById('executionTimeMetric');
-  const resultsContent = document.getElementById('resultsContent');
+  const formatSqlBtn = document.getElementById('formatSqlBtn');
+  const visualizeQueryBtn = document.getElementById('visualizeQueryBtn');
+  const shareQueryBtn = document.getElementById('shareQueryBtn');
+  const toastNotice = document.getElementById('toastNotice');
+  const toastMessage = document.getElementById('toastMessage');
+  const navExamplesBtn = document.getElementById('navExamplesBtn');
+  const navSqlGuideBtn = document.getElementById('navSqlGuideBtn');
+  const examplesModal = document.getElementById('examplesModal');
+  const examplesModalBody = document.getElementById('examplesModalBody');
+  const closeExamplesBtn = document.getElementById('closeExamplesBtn');
+  const sqlGuideModal = document.getElementById('sqlGuideModal');
+  const closeGuideBtn = document.getElementById('closeGuideBtn');
 
-  // Modal Elements
-  const previewModal = document.getElementById('previewModal');
-  const previewModalTableName = document.getElementById('previewModalTableName');
-  const modalBodyContent = document.getElementById('modalBodyContent');
-  const closeModalBtn = document.getElementById('closeModalBtn');
+  // Active query cache
+  let currentQueryResult = null;
+  let activeQueryMeta = null;
+
+  // Row color identity mapping for retail dataset
+  const CUSTOMER_COLORS = {
+    1: { name: 'Ava Chen', color: '#10b981' },
+    2: { name: 'Ben Ortiz', color: '#8b5cf6' },
+    3: { name: 'Cara Lee', color: '#f59e0b' },
+    4: { name: 'Diego Ruiz', color: '#06b6d4' }
+  };
 
   /**
    * Initializes the application
    */
   async function initApp() {
     try {
-      statusText.textContent = 'Loading SQLite Engine...';
+      if (sessionStatusText) sessionStatusText.textContent = 'CONNECTING...';
       await DB.init();
-      statusDot.classList.add('ready');
-      statusText.textContent = 'SQLite Ready';
+      if (sessionStatusText) sessionStatusText.textContent = 'LOCAL SESSION';
+      if (sessionDot) sessionDot.style.backgroundColor = '#10b981';
 
-      renderCurrentDataset();
-
-      // Initialize Execution Visualizer
       if (typeof Visualizer !== 'undefined' && Visualizer.init) {
         Visualizer.init();
       }
 
-      // Automatically load the first trial query
-      const defaultDataset = DATASETS[DB.currentDatasetKey];
-      if (defaultDataset && defaultDataset.sampleQueries.length > 0) {
-        selectPresetQuery(defaultDataset.sampleQueries[0]);
-      }
+      // Load initial dataset
+      loadDatasetUI(DB.currentDatasetKey);
+
+      // Setup event listeners
+      setupEventListeners();
     } catch (err) {
-      console.error('Initialization error:', err);
-      statusDot.style.backgroundColor = 'var(--accent-red)';
-      statusText.textContent = 'Engine Load Failed';
-      renderErrorState(
-        'Failed to initialize SQLite engine: ' +
-          (err.message || err) +
-          '. Please check your internet connection to load sql-wasm.'
-      );
+      console.error('App init error:', err);
+      if (sessionStatusText) sessionStatusText.textContent = 'OFFLINE';
+      if (sessionDot) sessionDot.style.backgroundColor = '#ef4444';
+      alert('Failed to initialize SQLite WebAssembly engine. Please check internet connection.');
     }
   }
 
   /**
-   * Renders the active dataset info, table cards, and trial queries
+   * Loads and renders a dataset
    */
-  function renderCurrentDataset() {
-    const dataset = DATASETS[DB.currentDatasetKey];
+  function loadDatasetUI(key) {
+    DB.loadDataset(key);
+    const dataset = DATASETS[key];
     if (!dataset) return;
 
-    // Render dataset description
-    datasetInfoBox.textContent = dataset.description;
+    if (activeSampleLabel) activeSampleLabel.textContent = dataset.label;
+    if (sourceDataStats) sourceDataStats.textContent = dataset.tablesCount || `${dataset.tables.length} tables`;
 
-    // Render tables in active database
-    renderDatabaseTables();
+    // Render source data tables
+    renderSourceTables();
 
-    // Render trial queries
-    renderTrialQueries(dataset.sampleQueries);
-  }
-
-  /**
-   * Renders the source tables directly side-by-side with live rows and columns
-   */
-  function renderDatabaseTables() {
-    if (!databaseTablesContainer) return;
-    databaseTablesContainer.innerHTML = '';
-
-    const tables = DB.getAllTables();
-
-    tables.forEach(table => {
-      const card = document.createElement('div');
-      card.className = 'source-table-card';
-
-      // Build table headers with PK/FK indicators and column types
-      const thHtml = table.colNames
-        .map(colName => {
-          const meta = (table.metaColumns || []).find(c => c.name === colName);
-          let badge = '';
-          if (meta?.pk) {
-            badge = '<span class="badge-pk" title="Primary Key">PK</span>';
-          } else if (meta?.fk) {
-            badge = `<span class="badge-fk" title="Foreign Key -> ${escapeHtml(meta.fk)}">FK</span>`;
-          }
-          const colType = meta?.type ? `<span class="col-type-tag">${escapeHtml(meta.type)}</span>` : '';
-          return `<th>
-            <div class="col-header-cell">
-              <span class="col-name">${escapeHtml(colName)}</span>
-              ${badge}
-              ${colType}
-            </div>
-          </th>`;
-        })
-        .join('');
-
-      // Build table body rows
-      let tbodyHtml = '';
-      if (table.rows.length === 0) {
-        tbodyHtml = `<tr><td colspan="${table.colNames.length || 1}" class="empty-cell">Table is empty</td></tr>`;
-      } else {
-        table.rows.forEach(row => {
-          tbodyHtml += '<tr>';
-          row.forEach(val => {
-            if (val === null || val === undefined) {
-              tbodyHtml += `<td><span class="null-badge">NULL</span></td>`;
-            } else {
-              tbodyHtml += `<td>${escapeHtml(String(val))}</td>`;
-            }
-          });
-          tbodyHtml += '</tr>';
-        });
-      }
-
-      card.innerHTML = `
-        <div class="source-table-header">
-          <div class="source-table-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <path d="M3 9h18"/>
-              <path d="M9 21V9"/>
-            </svg>
-            <span class="table-name-title">${escapeHtml(table.name)}</span>
-            <span class="table-rows-count">${table.rows.length} rows</span>
-          </div>
-          <button class="btn-expand-modal" data-table="${escapeHtml(table.name)}" title="Expand full view">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="15 3 21 3 21 9"/>
-              <polyline points="9 21 3 21 3 15"/>
-              <line x1="21" y1="3" x2="14" y2="10"/>
-              <line x1="3" y1="21" x2="10" y2="14"/>
-            </svg>
-          </button>
-        </div>
-        <div class="source-table-data-wrapper">
-          <table class="source-sql-table">
-            <thead>
-              <tr>${thHtml}</tr>
-            </thead>
-            <tbody>
-              ${tbodyHtml}
-            </tbody>
-          </table>
-        </div>
-      `;
-
-      databaseTablesContainer.appendChild(card);
-    });
-
-    // Attach expand modal listeners
-    databaseTablesContainer.querySelectorAll('.btn-expand-modal').forEach(btn => {
-      btn.addEventListener('click', e => {
-        const tableName = e.currentTarget.getAttribute('data-table');
-        openTablePreview(tableName);
-      });
-    });
-  }
-
-  /**
-   * Renders clickable Trial Query chips
-   */
-  function renderTrialQueries(queries) {
-    if (!presetChipsContainer) return;
-    presetChipsContainer.innerHTML = '';
-
-    queries.forEach((q, index) => {
-      const chip = document.createElement('button');
-      chip.className = 'trial-chip' + (index === 0 ? ' active' : '');
-      chip.innerHTML = `
-        <span class="trial-chip-cat">${escapeHtml(q.category)}</span>
-        <span class="trial-chip-title">${escapeHtml(q.title)}</span>
-      `;
-
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.trial-chip').forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        selectPresetQuery(q);
-      });
-
-      presetChipsContainer.appendChild(chip);
-    });
-  }
-
-  /**
-   * Loads a trial query into the editor and executes it
-   */
-  function selectPresetQuery(preset) {
-    sqlInput.value = preset.sql;
-    activeQueryTitle.textContent = preset.title;
-    activeQueryDesc.textContent = preset.description;
-    handleRunQuery();
-  }
-
-  /**
-   * Executes the SQL statement from the editor and updates UI
-   */
-  function handleRunQuery() {
-    const sql = sqlInput.value;
-
-    // Sync query title & description with active dataset presets or mark as custom
-    const cleanCurrentSql = (sql || '').trim().replace(/;$/, '');
-    const currentDataset = DATASETS[DB.currentDatasetKey];
-    const matchedPreset = currentDataset?.sampleQueries?.find(
-      q => q.sql.trim().replace(/;$/, '') === cleanCurrentSql
-    );
-
-    if (matchedPreset) {
-      activeQueryTitle.textContent = matchedPreset.title;
-      activeQueryDesc.textContent = matchedPreset.description;
-      const chips = document.querySelectorAll('.trial-chip');
-      currentDataset.sampleQueries.forEach((q, idx) => {
-        if (chips[idx]) {
-          chips[idx].classList.toggle('active', q.sql.trim().replace(/;$/, '') === cleanCurrentSql);
-        }
-      });
-    } else {
-      activeQueryTitle.textContent = 'Custom SQL Query';
-      activeQueryDesc.textContent = 'Executing custom user-written SQL statement.';
-      document.querySelectorAll('.trial-chip').forEach(c => c.classList.remove('active'));
+    // Select the first sample query
+    if (dataset.sampleQueries && dataset.sampleQueries.length > 0) {
+      selectQuery(dataset.sampleQueries[0]);
     }
+  }
+
+  /**
+   * Selects and loads a query into editor and executes it
+   */
+  function selectQuery(queryMeta) {
+    activeQueryMeta = queryMeta;
+
+    if (queryTitleHeading) queryTitleHeading.textContent = queryMeta.title;
+    if (queryCategoryTag) queryCategoryTag.textContent = queryMeta.category || 'SQL QUERY';
+    if (querySubtitleText) querySubtitleText.textContent = queryMeta.subtitle || '';
+    if (outputPreviewNote) outputPreviewNote.textContent = queryMeta.previewNote || 'Query output';
+    if (editorFileName) editorFileName.textContent = queryMeta.filename || 'query.sql';
+
+    if (sqlInput) {
+      sqlInput.value = queryMeta.sql;
+      updateEditorGutter();
+    }
+
+    // Execute query and trigger visualizer
+    runQuery();
+  }
+
+  /**
+   * Executes SQL in editor, displays results, and passes query to Visualizer
+   */
+  function runQuery() {
+    const sql = (sqlInput.value || '').trim();
+    if (!sql) return;
 
     try {
       const result = DB.execute(sql);
+      currentQueryResult = result;
 
-      // Update metrics
-      rowCountMetric.textContent = `${result.rowCount} row${result.rowCount === 1 ? '' : 's'}`;
-      executionTimeMetric.textContent = `${result.executionTime} ms`;
-
-      // Render table or message
-      if (result.columns.length === 0) {
-        resultsContent.innerHTML = `
-          <div class="state-empty">
-            <p>${escapeHtml(result.message || 'Query executed successfully.')}</p>
-          </div>
-        `;
-      } else {
-        renderResultsTable(result.columns, result.values);
+      // Update metrics pill
+      if (outputMetricsPill) {
+        outputMetricsPill.textContent = `${result.rowCount} rows · ${result.executionTime} ms`;
       }
 
-      // If statement mutated data (insert, update, delete, etc.), refresh source tables view
-      if (/^\s*(insert|update|delete|drop|alter|create)\b/i.test(sql)) {
-        renderDatabaseTables();
-      }
+      // Render output table
+      renderOutputTable(result);
 
-      // Update execution pipeline visualizer
+      // Trigger Visualizer
       if (typeof Visualizer !== 'undefined' && Visualizer.loadQuery) {
         Visualizer.loadQuery(sql);
       }
     } catch (err) {
-      rowCountMetric.textContent = `0 rows`;
-      executionTimeMetric.textContent = `${err.executionTime || 0} ms`;
-      renderErrorState(err.message || 'Syntax error in SQL statement.');
-
-      if (typeof Visualizer !== 'undefined' && Visualizer.renderEmptyState) {
-        Visualizer.renderEmptyState('Query has errors. Fix SQL to view visual pipeline.');
+      console.warn('Query execution error:', err);
+      if (outputMetricsPill) {
+        outputMetricsPill.textContent = `Error · ${err.executionTime || 0} ms`;
       }
+      renderErrorOutput(err.message || String(err));
     }
   }
 
   /**
-   * Formats raw columns & rows into a clean data table with NULL formatting
+   * Renders the Output table with customer identity dots
    */
-  function renderResultsTable(columns, rows) {
-    let html = '<table class="sql-table"><thead><tr>';
+  function renderOutputTable(result) {
+    if (!queryOutputScroll) return;
 
-    columns.forEach(col => {
-      html += `<th>${escapeHtml(col)}</th>`;
+    if (!result.columns || result.columns.length === 0) {
+      queryOutputScroll.innerHTML = `<div style="padding:1rem; font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono);">${result.message || 'No rows returned.'}</div>`;
+      return;
+    }
+
+    let ths = `<th>#</th>`;
+    result.columns.forEach(col => {
+      ths += `<th>${col} <span class="col-key-tag">· numeric</span></th>`;
     });
-    html += '</tr></thead><tbody>';
 
-    if (rows.length === 0) {
-      html += `<tr><td colspan="${columns.length}" style="text-align:center; padding: 2rem; color: var(--text-muted);">Query returned 0 rows.</td></tr>`;
-    } else {
-      rows.forEach(row => {
-        html += '<tr>';
-        row.forEach(val => {
-          if (val === null || val === undefined) {
-            html += `<td><span class="null-badge">NULL</span></td>`;
-          } else {
-            html += `<td>${escapeHtml(String(val))}</td>`;
+    let trs = '';
+    result.values.forEach((row, idx) => {
+      let tds = `<td><span style="color:var(--text-subtle);">${idx + 1}</span></td>`;
+
+      row.forEach((val, colIdx) => {
+        // Look up identity dot for customer name
+        let dotHtml = '';
+        if (typeof val === 'string') {
+          for (const cId in CUSTOMER_COLORS) {
+            if (val.toLowerCase().includes(CUSTOMER_COLORS[cId].name.toLowerCase())) {
+              dotHtml = `<span class="row-dot" style="background-color:${CUSTOMER_COLORS[cId].color}; margin-right:0.45rem;"></span>`;
+              break;
+            }
           }
-        });
-        html += '</tr>';
-      });
-    }
+        }
 
-    html += '</tbody></table>';
-    resultsContent.innerHTML = html;
+        // Format numbers if decimal/money
+        let displayVal = val;
+        if (typeof val === 'number') {
+          displayVal = val.toFixed(2);
+        }
+
+        tds += `<td><span class="row-identity-cell">${dotHtml}${displayVal !== null ? displayVal : 'NULL'}</span></td>`;
+      });
+
+      trs += `<tr>${tds}</tr>`;
+    });
+
+    queryOutputScroll.innerHTML = `
+      <table class="scope-table">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    `;
   }
 
-  /**
-   * Displays formatted SQLite error message
-   */
-  function renderErrorState(errorMessage) {
-    resultsContent.innerHTML = `
-      <div class="state-error">
-        <strong>SQL Execution Error:</strong>
-        <span>${escapeHtml(errorMessage)}</span>
+  function renderErrorOutput(msg) {
+    if (!queryOutputScroll) return;
+    queryOutputScroll.innerHTML = `
+      <div style="padding:0.85rem; font-size:0.75rem; color:#dc2626; font-family:var(--font-mono); background:#fef2f2; border-radius:var(--radius-md);">
+        Error: ${msg}
       </div>
     `;
   }
 
   /**
-   * Opens the Table Preview Modal
+   * Renders the Source Data tables with customer dots and relation hints
    */
-  function openTablePreview(tableName) {
-    const details = DB.getTableDetails(tableName);
-    if (!details) return;
+  function renderSourceTables() {
+    if (!sourceTablesContainer) return;
+    sourceTablesContainer.innerHTML = '';
 
-    previewModalTableName.textContent = tableName;
+    const tables = DB.getAllTables();
 
-    let html = '<table class="sql-table"><thead><tr>';
-    details.colNames.forEach(col => {
-      html += `<th>${escapeHtml(col)}</th>`;
-    });
-    html += '</tr></thead><tbody>';
+    tables.forEach(table => {
+      const card = document.createElement('div');
+      card.className = 'source-sub-table-card';
 
-    if (details.rows.length === 0) {
-      html += `<tr><td colspan="${details.colNames.length}" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">Table is empty.</td></tr>`;
-    } else {
-      details.rows.forEach(row => {
-        html += '<tr>';
-        row.forEach(val => {
-          if (val === null || val === undefined) {
-            html += `<td><span class="null-badge">NULL</span></td>`;
-          } else {
-            html += `<td>${escapeHtml(String(val))}</td>`;
+      // Table meta
+      const rowCount = table.rows ? table.rows.length : 0;
+      const meta = DATASETS[DB.currentDatasetKey]?.tables.find(t => t.name === table.name);
+      const relationHint = meta?.relationHint || '';
+
+      // Headers
+      let ths = '';
+      table.colNames.forEach(colName => {
+        const colMeta = (meta?.columns || []).find(c => c.name === colName);
+        let tag = '';
+        if (colMeta?.pk) tag = ' · PK';
+        else if (colMeta?.fk) tag = ' · FK';
+        ths += `<th>${colName}<span class="col-key-tag">${tag}</span></th>`;
+      });
+
+      // Rows
+      let trs = '';
+      (table.rows || []).forEach(row => {
+        let tds = '';
+
+        // If customers table, row[0] is id
+        // If orders table, row[1] is customer_id
+        let customerId = null;
+        if (table.name === 'customers') customerId = row[0];
+        else if (table.name === 'orders') customerId = row[1];
+
+        const identity = customerId ? CUSTOMER_COLORS[customerId] : null;
+
+        row.forEach((val, cIdx) => {
+          let dotHtml = '';
+          // Show dot on first column
+          if (cIdx === 0 && identity) {
+            dotHtml = `<span class="row-dot" style="background-color: ${identity.color}; margin-right: 0.45rem;"></span>`;
           }
+
+          // Format total decimal if orders table and column index 2
+          let formattedVal = val;
+          if (table.name === 'orders' && cIdx === 2 && typeof val === 'number') {
+            formattedVal = val.toFixed(2);
+          }
+
+          tds += `<td><span class="row-identity-cell">${dotHtml}${formattedVal !== null ? formattedVal : 'NULL'}</span></td>`;
         });
-        html += '</tr>';
+
+        trs += `<tr>${tds}</tr>`;
+      });
+
+      card.innerHTML = `
+        <div class="source-sub-header">
+          <span class="sub-table-name">${table.name}</span>
+          <span class="sub-table-rows-badge">${rowCount} rows</span>
+        </div>
+        <div class="source-table-scroll">
+          <table class="scope-table">
+            <thead><tr>${ths}</tr></thead>
+            <tbody>${trs}</tbody>
+          </table>
+        </div>
+        ${relationHint ? `<div class="source-sub-footer">${relationHint}</div>` : ''}
+      `;
+
+      sourceTablesContainer.appendChild(card);
+    });
+  }
+
+  /**
+   * Keeps line numbers in the gutter synchronized with textarea lines
+   */
+  function updateEditorGutter() {
+    if (!editorGutter || !sqlInput) return;
+    const lines = (sqlInput.value || '').split('\n').length;
+    let html = '';
+    for (let i = 1; i <= Math.max(lines, 8); i++) {
+      html += `<div class="gutter-num" id="lineNum_${i}">${i}</div>`;
+    }
+    editorGutter.innerHTML = html;
+  }
+
+  /**
+   * Sets up all event listeners
+   */
+  function setupEventListeners() {
+    // Dataset dropdown toggle
+    if (datasetDropdownBtn) {
+      datasetDropdownBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const wrapper = datasetDropdownBtn.closest('.sample-selector-wrapper');
+        if (wrapper) wrapper.classList.toggle('open');
       });
     }
 
-    html += '</tbody></table>';
-    modalBodyContent.innerHTML = html;
-    previewModal.classList.add('active');
+    // Dataset selection
+    document.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const key = item.getAttribute('data-dataset');
+        if (key && DATASETS[key]) {
+          document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
+          item.classList.add('active');
+          const wrapper = item.closest('.sample-selector-wrapper');
+          if (wrapper) wrapper.classList.remove('open');
+          loadDatasetUI(key);
+        }
+      });
+    });
+
+    // Close dropdown on outside click
+    window.addEventListener('click', () => {
+      const wrapper = document.querySelector('.sample-selector-wrapper');
+      if (wrapper) wrapper.classList.remove('open');
+    });
+
+    // Visualize Query Button
+    if (visualizeQueryBtn) {
+      visualizeQueryBtn.addEventListener('click', () => {
+        runQuery();
+      });
+    }
+
+    // Reset Data Button
+    if (resetDataBtn) {
+      resetDataBtn.addEventListener('click', () => {
+        DB.reset();
+        renderSourceTables();
+        runQuery();
+        showToast('Sample dataset restored to initial state.');
+      });
+    }
+
+    // Format SQL button
+    if (formatSqlBtn) {
+      formatSqlBtn.addEventListener('click', () => {
+        formatSqlQuery();
+      });
+    }
+
+    // Sync line numbers on typing
+    if (sqlInput) {
+      sqlInput.addEventListener('input', () => {
+        updateEditorGutter();
+      });
+
+      sqlInput.addEventListener('keydown', (e) => {
+        // Ctrl+Enter or Cmd+Enter to run query
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          runQuery();
+        }
+        // Ctrl+Alt+F or Cmd+J to format SQL
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || (e.altKey && e.key === 'f'))) {
+          e.preventDefault();
+          formatSqlQuery();
+        }
+        // Tab key support
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const start = sqlInput.selectionStart;
+          const end = sqlInput.selectionEnd;
+          sqlInput.value = sqlInput.value.substring(0, start) + '  ' + sqlInput.value.substring(end);
+          sqlInput.selectionStart = sqlInput.selectionEnd = start + 2;
+        }
+      });
+    }
+
+    // Share Query Button
+    if (shareQueryBtn) {
+      shareQueryBtn.addEventListener('click', () => {
+        const sql = sqlInput.value;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(sql).then(() => {
+            showToast('Query copied to clipboard!');
+          }).catch(() => {
+            showToast('Query ready to copy.');
+          });
+        } else {
+          showToast('Query link generated.');
+        }
+      });
+    }
+
+    // Download CSV button
+    if (downloadResultsBtn) {
+      downloadResultsBtn.addEventListener('click', () => {
+        exportOutputToCsv();
+      });
+    }
+
+    // Examples navigation
+    if (navExamplesBtn) {
+      navExamplesBtn.addEventListener('click', () => {
+        openExamplesModal();
+      });
+    }
+    if (closeExamplesBtn) {
+      closeExamplesBtn.addEventListener('click', () => {
+        if (examplesModal) examplesModal.classList.remove('open');
+      });
+    }
+
+    // SQL Guide navigation
+    if (navSqlGuideBtn) {
+      navSqlGuideBtn.addEventListener('click', () => {
+        if (sqlGuideModal) sqlGuideModal.classList.add('open');
+      });
+    }
+    if (closeGuideBtn) {
+      closeGuideBtn.addEventListener('click', () => {
+        if (sqlGuideModal) sqlGuideModal.classList.remove('open');
+      });
+    }
+
+    // Close modals on clicking overlay backdrop
+    window.addEventListener('click', (e) => {
+      if (e.target === examplesModal) examplesModal.classList.remove('open');
+      if (e.target === sqlGuideModal) sqlGuideModal.classList.remove('open');
+    });
   }
 
   /**
-   * Closes the Table Preview Modal
+   * Formats SQL with clean indentation and uppercase keywords
    */
-  function closeTablePreview() {
-    previewModal.classList.remove('active');
+  function formatSqlQuery() {
+    let sql = sqlInput.value;
+    const keywords = ['SELECT', 'FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'ON', 'AS', 'AND', 'OR', 'DESC', 'ASC', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ROUND'];
+
+    keywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+      sql = sql.replace(regex, kw);
+    });
+
+    sqlInput.value = sql;
+    updateEditorGutter();
+    showToast('SQL formatted nicely.');
   }
 
   /**
-   * Helper: Escapes HTML to prevent XSS
+   * Displays the toast notification
    */
-  function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+  function showToast(msg) {
+    if (!toastNotice) return;
+    if (toastMessage) toastMessage.textContent = msg;
+    toastNotice.classList.add('show');
+    setTimeout(() => {
+      toastNotice.classList.remove('show');
+    }, 2800);
   }
 
-  // Event Listeners
-  runQueryBtn.addEventListener('click', handleRunQuery);
+  /**
+   * Exports current output table to CSV file
+   */
+  function exportOutputToCsv() {
+    if (!currentQueryResult || !currentQueryResult.columns || currentQueryResult.columns.length === 0) {
+      showToast('No result rows to export.');
+      return;
+    }
 
-  sqlInput.addEventListener('input', () => {
-    const cleanCurrentSql = sqlInput.value.trim().replace(/;$/, '');
+    const headers = currentQueryResult.columns.join(',');
+    const rows = currentQueryResult.values.map(r => r.map(v => `"${String(v !== null ? v : '')}"`).join(','));
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'query_result.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Downloaded query_result.csv');
+  }
+
+  /**
+   * Opens Examples modal with categorized queries
+   */
+  function openExamplesModal() {
+    if (!examplesModal || !examplesModalBody) return;
+    examplesModalBody.innerHTML = '';
+
     const currentDataset = DATASETS[DB.currentDatasetKey];
-    const matchedPreset = currentDataset?.sampleQueries?.find(
-      q => q.sql.trim().replace(/;$/, '') === cleanCurrentSql
-    );
-    const chips = document.querySelectorAll('.trial-chip');
+    if (!currentDataset) return;
 
-    if (matchedPreset) {
-      activeQueryTitle.textContent = matchedPreset.title;
-      activeQueryDesc.textContent = matchedPreset.description;
-      currentDataset.sampleQueries.forEach((q, idx) => {
-        if (chips[idx]) chips[idx].classList.toggle('active', q.sql.trim().replace(/;$/, '') === cleanCurrentSql);
+    const grid = document.createElement('div');
+    grid.className = 'examples-grid';
+
+    (currentDataset.sampleQueries || []).forEach(q => {
+      const card = document.createElement('button');
+      card.className = 'example-card-btn';
+      card.innerHTML = `
+        <div class="example-header-line">
+          <span class="example-title">${q.title}</span>
+          <span class="example-cat-tag">${q.category || 'SQL'}</span>
+        </div>
+        <p class="example-desc">${q.subtitle || q.description || ''}</p>
+      `;
+
+      card.addEventListener('click', () => {
+        selectQuery(q);
+        examplesModal.classList.remove('open');
       });
-    } else {
-      activeQueryTitle.textContent = 'Custom SQL Query';
-      activeQueryDesc.textContent = 'Executing custom user-written SQL statement.';
-      chips.forEach(c => c.classList.remove('active'));
-    }
-  });
 
-  clearBtn.addEventListener('click', () => {
-    sqlInput.value = '';
-    sqlInput.focus();
-    activeQueryTitle.textContent = 'Custom Query';
-    activeQueryDesc.textContent = 'Write and execute any valid SQL statement.';
-    document.querySelectorAll('.trial-chip').forEach(c => c.classList.remove('active'));
-    if (typeof Visualizer !== 'undefined' && Visualizer.renderEmptyState) {
-      Visualizer.renderEmptyState('Write a query and click Run Query to inspect execution pipeline.');
-    }
-  });
+      grid.appendChild(card);
+    });
 
-  // Keyboard shortcut: Ctrl+Enter / Cmd+Enter
-  window.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      handleRunQuery();
-    }
-  });
+    examplesModalBody.appendChild(grid);
+    examplesModal.classList.add('open');
+  }
 
-  // Switch Dataset
-  datasetSelect.addEventListener('change', e => {
-    const selectedKey = e.target.value;
-    try {
-      DB.loadDataset(selectedKey);
-      renderCurrentDataset();
-
-      // Load first trial query
-      const dataset = DATASETS[selectedKey];
-      if (dataset && dataset.sampleQueries.length > 0) {
-        selectPresetQuery(dataset.sampleQueries[0]);
-      }
-    } catch (err) {
-      renderErrorState(err.message);
-    }
-  });
-
-  // Reset DB
-  resetDbBtn.addEventListener('click', () => {
-    try {
-      DB.reset();
-      renderDatabaseTables();
-      handleRunQuery();
-
-      const originalHtml = resetDbBtn.innerHTML;
-      resetDbBtn.innerHTML = '<span>&#10003; Reset Done</span>';
-      setTimeout(() => {
-        resetDbBtn.innerHTML = originalHtml;
-      }, 1200);
-    } catch (err) {
-      renderErrorState(err.message);
-    }
-  });
-
-  // Close Modal handlers
-  closeModalBtn.addEventListener('click', closeTablePreview);
-  previewModal.addEventListener('click', e => {
-    if (e.target === previewModal) {
-      closeTablePreview();
-    }
-  });
-  window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      closeTablePreview();
-    }
-  });
-
-  // Start initialization
-  initApp();
+  // Kickstart application
+  await initApp();
 });

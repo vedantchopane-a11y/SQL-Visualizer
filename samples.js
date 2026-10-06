@@ -1,16 +1,143 @@
-// samples.js - Pre-configured relational datasets and beginner-friendly sample queries
+// samples.js - Pre-configured relational datasets, color palettes, and queries matching Queryscope
 
 const DATASETS = {
+  retail: {
+    name: "Retail sample",
+    label: "Retail sample",
+    tablesCount: "2 tables / 10 rows",
+    description: "Retail schema demonstrating 1-to-many relationship between Customers and Orders with statuses and totals.",
+    tables: [
+      {
+        name: "customers",
+        badge: "4 rows",
+        relationHint: "id → orders.customer_id",
+        columns: [
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "name", type: "TEXT", pk: false, description: "name" },
+          { name: "city", type: "TEXT", pk: false, description: "city" }
+        ],
+        dataSql: `
+          CREATE TABLE customers (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            city TEXT NOT NULL
+          );
+
+          INSERT INTO customers (id, name, city) VALUES
+          (1, 'Ava Chen', 'San Francisco'),
+          (2, 'Ben Ortiz', 'Austin'),
+          (3, 'Cara Lee', 'Seattle'),
+          (4, 'Diego Ruiz', 'Boston');
+        `,
+        rowIdentities: [
+          { id: 1, name: 'Ava Chen', short: 'Ava', color: '#10b981', bg: '#ecfdf5', border: '#86efac', text: '#065f46' },
+          { id: 2, name: 'Ben Ortiz', short: 'Ben', color: '#8b5cf6', bg: '#f5f3ff', border: '#c4b5fd', text: '#5b21b6' },
+          { id: 3, name: 'Cara Lee', short: 'Cara', color: '#f59e0b', bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+          { id: 4, name: 'Diego Ruiz', short: 'Diego', color: '#06b6d4', bg: '#ecfeff', border: '#67e8f9', text: '#0e7490' }
+        ]
+      },
+      {
+        name: "orders",
+        badge: "6 rows",
+        columns: [
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "customer_id", type: "INTEGER", pk: false, fk: "customers.id", description: "customer_id · FK" },
+          { name: "total", type: "REAL", pk: false, description: "total" },
+          { name: "status", type: "TEXT", pk: false, description: "status" }
+        ],
+        dataSql: `
+          CREATE TABLE orders (
+            id INTEGER PRIMARY KEY,
+            customer_id INTEGER NOT NULL,
+            total REAL NOT NULL,
+            status TEXT NOT NULL,
+            FOREIGN KEY (customer_id) REFERENCES customers(id)
+          );
+
+          INSERT INTO orders (id, customer_id, total, status) VALUES
+          (101, 1, 120.00, 'paid'),
+          (102, 2, 60.00, 'paid'),
+          (103, 1, 80.00, 'paid'),
+          (104, 3, 150.00, 'paid'),
+          (105, 1, 40.00, 'pending'),
+          (106, 4, 90.00, 'refunded');
+        `
+      }
+    ],
+    sampleQueries: [
+      {
+        title: "Who are our top customers?",
+        filename: "top_customers.sql",
+        category: "JOIN + AGGREGATION",
+        subtitle: "Follow each row from source data to result. See what SQL does, not just what it returns.",
+        previewNote: "Final result preview · Customers with at least $100 in paid orders, highest spend first.",
+        sql: `SELECT c.name,
+       SUM(o.total) AS total_spent
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+WHERE o.status = 'paid'
+GROUP BY c.id, c.name
+HAVING SUM(o.total) >= 100
+ORDER BY total_spent DESC;
+-- Explore the execution below`
+      },
+      {
+        title: "All orders with customer details",
+        filename: "customer_orders.sql",
+        category: "INNER JOIN",
+        subtitle: "Pair each order with its respective customer name and location.",
+        previewNote: "Final result preview · All 6 orders mapped to their customer profiles.",
+        sql: `SELECT o.id AS order_id,
+       c.name AS customer_name,
+       o.total,
+       o.status
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+ORDER BY o.id ASC;`
+      },
+      {
+        title: "Lifetime spend per customer",
+        filename: "all_customer_spend.sql",
+        category: "GROUP BY + AGGREGATION",
+        subtitle: "Aggregate total spend across all customers who made purchases.",
+        previewNote: "Final result preview · Total spending grouped by customer.",
+        sql: `SELECT c.name,
+       COUNT(o.id) AS orders_count,
+       SUM(o.total) AS total_spent
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+WHERE o.status = 'paid'
+GROUP BY c.id, c.name
+ORDER BY total_spent DESC;`
+      },
+      {
+        title: "Pending and refunded orders",
+        filename: "unsettled_orders.sql",
+        category: "FILTERING",
+        subtitle: "Filter out orders that haven't been completed successfully.",
+        previewNote: "Final result preview · Filtered view of unresolved orders.",
+        sql: `SELECT o.id, c.name, o.total, o.status
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+WHERE o.status != 'paid';`
+      }
+    ]
+  },
+
   company: {
-    name: "Company (Employees & Departments)",
+    name: "Company sample",
+    label: "Company sample",
+    tablesCount: "2 tables / 13 rows",
     description: "Classic relational schema demonstrating One-to-Many relationships between Departments and Employees.",
     tables: [
       {
         name: "departments",
+        badge: "5 rows",
+        relationHint: "id → employees.department_id",
         columns: [
-          { name: "id", type: "INTEGER", pk: true, description: "Primary Key" },
-          { name: "name", type: "TEXT", pk: false, description: "Department Name" },
-          { name: "location", type: "TEXT", pk: false, description: "Office Location" }
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "name", type: "TEXT", pk: false, description: "name" },
+          { name: "location", type: "TEXT", pk: false, description: "location" }
         ],
         dataSql: `
           CREATE TABLE departments (
@@ -25,16 +152,24 @@ const DATASETS = {
           (3, 'Design', 'London'),
           (4, 'Marketing', 'San Francisco'),
           (5, 'Human Resources', 'Chicago');
-        `
+        `,
+        rowIdentities: [
+          { id: 1, name: 'Engineering', short: 'Eng', color: '#10b981', bg: '#ecfdf5', border: '#86efac', text: '#065f46' },
+          { id: 2, name: 'Product', short: 'Prod', color: '#8b5cf6', bg: '#f5f3ff', border: '#c4b5fd', text: '#5b21b6' },
+          { id: 3, name: 'Design', short: 'Des', color: '#f59e0b', bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+          { id: 4, name: 'Marketing', short: 'Mkt', color: '#06b6d4', bg: '#ecfeff', border: '#67e8f9', text: '#0e7490' },
+          { id: 5, name: 'HR', short: 'HR', color: '#ec4899', bg: '#fdf2f8', border: '#f472b6', text: '#9d174d' }
+        ]
       },
       {
         name: "employees",
+        badge: "8 rows",
         columns: [
-          { name: "id", type: "INTEGER", pk: true, description: "Primary Key" },
-          { name: "name", type: "TEXT", pk: false, description: "Employee Full Name" },
-          { name: "role", type: "TEXT", pk: false, description: "Job Title" },
-          { name: "salary", type: "INTEGER", pk: false, description: "Annual Salary in USD" },
-          { name: "department_id", type: "INTEGER", pk: false, fk: "departments.id", description: "Foreign Key -> departments.id" }
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "name", type: "TEXT", pk: false, description: "name" },
+          { name: "role", type: "TEXT", pk: false, description: "role" },
+          { name: "salary", type: "INTEGER", pk: false, description: "salary" },
+          { name: "department_id", type: "INTEGER", pk: false, fk: "departments.id", description: "department_id · FK" }
         ],
         dataSql: `
           CREATE TABLE employees (
@@ -60,54 +195,49 @@ const DATASETS = {
     ],
     sampleQueries: [
       {
-        title: "1. Basic SELECT",
-        category: "Basics",
-        description: "Fetch all employee names, roles, and salaries.",
-        sql: `SELECT name, role, salary\nFROM employees;`
+        title: "Which departments have the highest salary spend?",
+        filename: "department_salaries.sql",
+        category: "JOIN + AGGREGATION",
+        subtitle: "Analyze payroll spend by aggregating employee salaries within each department.",
+        previewNote: "Final result preview · Departments ranked by total salary expenditures.",
+        sql: `SELECT d.name,
+       COUNT(e.id) AS team_size,
+       ROUND(AVG(e.salary), 2) AS avg_salary,
+       SUM(e.salary) AS total_payroll
+FROM departments d
+JOIN employees e ON d.id = e.department_id
+GROUP BY d.id, d.name
+ORDER BY total_payroll DESC;`
       },
       {
-        title: "2. Filter with WHERE",
-        category: "Filtering",
-        description: "Find employees earning more than $90,000.",
-        sql: `SELECT name, role, salary\nFROM employees\nWHERE salary > 90000\nORDER BY salary DESC;`
-      },
-      {
-        title: "3. Aggregate COUNT & AVG",
-        category: "Aggregations",
-        description: "Calculate overall headcount and average salary across all employees.",
-        sql: `SELECT \n  COUNT(*) AS total_employees,\n  ROUND(AVG(salary), 2) AS average_salary,\n  MIN(salary) AS lowest_salary,\n  MAX(salary) AS highest_salary\nFROM employees;`
-      },
-      {
-        title: "4. GROUP BY Departments",
-        category: "Grouping",
-        description: "Count employees and average salary per department ID.",
-        sql: `SELECT \n  department_id,\n  COUNT(*) AS employee_count,\n  ROUND(AVG(salary), 2) AS avg_salary\nFROM employees\nWHERE department_id IS NOT NULL\nGROUP BY department_id\nHAVING COUNT(*) > 1;`
-      },
-      {
-        title: "5. INNER JOIN (Match only)",
-        category: "JOINs",
-        description: "Combine employees with their department details (excludes employees without a department).",
-        sql: `SELECT \n  employees.name AS employee_name,\n  employees.role,\n  departments.name AS department_name,\n  departments.location\nFROM employees\nINNER JOIN departments \n  ON employees.department_id = departments.id;`
-      },
-      {
-        title: "6. LEFT JOIN (Include all employees)",
-        category: "JOINs",
-        description: "Include all employees, even contractors without an assigned department (shows NULL).",
-        sql: `SELECT \n  employees.name AS employee_name,\n  employees.role,\n  COALESCE(departments.name, '[No Department]') AS department_name\nFROM employees\nLEFT JOIN departments \n  ON employees.department_id = departments.id;`
+        title: "Filter high-earning employees",
+        filename: "high_earners.sql",
+        category: "FILTERING",
+        subtitle: "List team members earning more than $90,000 per year.",
+        previewNote: "Final result preview · Employees matching the salary threshold.",
+        sql: `SELECT name, role, salary
+FROM employees
+WHERE salary > 90000
+ORDER BY salary DESC;`
       }
     ]
   },
+
   university: {
-    name: "University (Students & Courses)",
+    name: "University sample",
+    label: "University sample",
+    tablesCount: "2 tables / 10 rows",
     description: "Educational schema demonstrating students enrolled in various academic courses.",
     tables: [
       {
         name: "courses",
+        badge: "4 rows",
+        relationHint: "id → students.course_id",
         columns: [
-          { name: "id", type: "INTEGER", pk: true, description: "Course ID" },
-          { name: "title", type: "TEXT", pk: false, description: "Course Title" },
-          { name: "credits", type: "INTEGER", pk: false, description: "Credit Hours" },
-          { name: "instructor", type: "TEXT", pk: false, description: "Instructor Name" }
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "title", type: "TEXT", pk: false, description: "title" },
+          { name: "credits", type: "INTEGER", pk: false, description: "credits" },
+          { name: "instructor", type: "TEXT", pk: false, description: "instructor" }
         ],
         dataSql: `
           CREATE TABLE courses (
@@ -118,19 +248,26 @@ const DATASETS = {
           );
 
           INSERT INTO courses (id, title, credits, instructor) VALUES
-          (201, 'Introduction to SQL & Databases', 3, 'Dr. Stone'),
-          (202, 'Data Structures & Algorithms', 4, 'Prof. Turing'),
-          (203, 'Web Systems & Architecture', 3, 'Dr. Berners'),
-          (204, 'Machine Learning Foundations', 4, 'Prof. Hinton');
-        `
+          (201, 'Introduction to SQL', 3, 'Dr. Stone'),
+          (202, 'Data Structures', 4, 'Prof. Turing'),
+          (203, 'Web Systems', 3, 'Dr. Berners'),
+          (204, 'Machine Learning', 4, 'Prof. Hinton');
+        `,
+        rowIdentities: [
+          { id: 201, name: 'Introduction to SQL', short: 'SQL', color: '#10b981', bg: '#ecfdf5', border: '#86efac', text: '#065f46' },
+          { id: 202, name: 'Data Structures', short: 'DS', color: '#8b5cf6', bg: '#f5f3ff', border: '#c4b5fd', text: '#5b21b6' },
+          { id: 203, name: 'Web Systems', short: 'Web', color: '#f59e0b', bg: '#fffbeb', border: '#fcd34d', text: '#92400e' },
+          { id: 204, name: 'Machine Learning', short: 'ML', color: '#06b6d4', bg: '#ecfeff', border: '#67e8f9', text: '#0e7490' }
+        ]
       },
       {
         name: "students",
+        badge: "6 rows",
         columns: [
-          { name: "id", type: "INTEGER", pk: true, description: "Student ID" },
-          { name: "name", type: "TEXT", pk: false, description: "Student Name" },
-          { name: "gpa", type: "REAL", pk: false, description: "Grade Point Average" },
-          { name: "course_id", type: "INTEGER", pk: false, fk: "courses.id", description: "Enrolled Course ID" }
+          { name: "id", type: "INTEGER", pk: true, description: "id · PK" },
+          { name: "name", type: "TEXT", pk: false, description: "name" },
+          { name: "gpa", type: "REAL", pk: false, description: "gpa" },
+          { name: "course_id", type: "INTEGER", pk: false, fk: "courses.id", description: "course_id · FK" }
         ],
         dataSql: `
           CREATE TABLE students (
@@ -153,28 +290,18 @@ const DATASETS = {
     ],
     sampleQueries: [
       {
-        title: "1. All Students",
-        category: "Basics",
-        description: "List all students and their GPAs.",
-        sql: `SELECT name, gpa FROM students ORDER BY gpa DESC;`
-      },
-      {
-        title: "2. Honor Roll (GPA >= 3.5)",
-        category: "Filtering",
-        description: "Filter students eligible for academic honors.",
-        sql: `SELECT name, gpa\nFROM students\nWHERE gpa >= 3.5\nORDER BY gpa DESC;`
-      },
-      {
-        title: "3. Course Enrolment Count",
-        category: "Grouping",
-        description: "Count how many students are enrolled in each course.",
-        sql: `SELECT \n  course_id,\n  COUNT(*) AS total_enrolled,\n  ROUND(AVG(gpa), 2) AS average_gpa\nFROM students\nWHERE course_id IS NOT NULL\nGROUP BY course_id;`
-      },
-      {
-        title: "4. Student & Course INNER JOIN",
-        category: "JOINs",
-        description: "Show student names alongside their course title and instructor.",
-        sql: `SELECT \n  students.name AS student_name,\n  students.gpa,\n  courses.title AS course_title,\n  courses.instructor\nFROM students\nINNER JOIN courses \n  ON students.course_id = courses.id;`
+        title: "Course enrolment & GPA performance",
+        filename: "course_performance.sql",
+        category: "JOIN + AGGREGATION",
+        subtitle: "Calculate total students enrolled and average GPA per course.",
+        previewNote: "Final result preview · Courses with average student GPAs.",
+        sql: `SELECT c.title,
+       COUNT(s.id) AS total_enrolled,
+       ROUND(AVG(s.gpa), 2) AS average_gpa
+FROM courses c
+JOIN students s ON c.id = s.course_id
+GROUP BY c.id, c.title
+ORDER BY total_enrolled DESC;`
       }
     ]
   }
